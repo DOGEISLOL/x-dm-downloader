@@ -120,24 +120,9 @@ export const twitterRouter = createTRPCRouter({
     .mutation(async ({ input }) => {
       try {
         const token = await exchangeCodeForToken(input.code, input.codeVerifier);
-        const response = await fetch('https://api.twitter.com/2/dm_events?max_results=100&event_types=MessageCreate&dm_event.fields=created_at,dm_conversation_id,participant_ids,sender_id,text&expansions=sender_id,participant_ids&user.fields=username,name,profile_image_url', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
         
-        const data = await response.json();
-        
-        if (!response.ok) {
-          console.error("DM fetch failed:", data);
-          throw new Error(`Failed to fetch DMs: ${JSON.stringify(data)}`);
-        }
-        
-        // Extract users from the includes section
-        const users = data.includes?.users || [];
-        
-        // Fetch all DMs with pagination
-        const allDMs = await fetchAllDMs(token);
+        // Fetch all DMs with pagination and collect user data
+        const { dms: allDMs, users } = await fetchAllDMs(token);
         
         // Convert to CSV with user information
         const csvData = convertDMsToCSV(allDMs, users);
@@ -154,6 +139,7 @@ export const twitterRouter = createTRPCRouter({
 async function fetchAllDMs(token: string) {
   try {
     let allDMs: any[] = [];
+    let allUsers: any[] = [];  // Add this to collect all users
     let paginationToken: string | undefined = undefined;
     let hasMorePages = true;
     
@@ -201,6 +187,12 @@ async function fetchAllDMs(token: string) {
       // Add this page of DMs to our collection
       allDMs = [...allDMs, ...data.data];
       
+      // Collect user data from includes
+      if (data.includes && data.includes.users) {
+        allUsers = [...allUsers, ...data.includes.users];
+        console.log(`Added ${data.includes.users.length} users from this page`);
+      }
+      
       // Check if there are more pages
       if (data.meta && data.meta.next_token) {
         paginationToken = data.meta.next_token;
@@ -218,7 +210,15 @@ async function fetchAllDMs(token: string) {
     }
     
     console.log(`Total DMs fetched: ${allDMs.length}`);
-    return allDMs;
+    console.log(`Total users fetched: ${allUsers.length}`);
+    
+    // Deduplicate users by ID
+    const uniqueUsers = Array.from(
+      new Map(allUsers.map(user => [user.id, user])).values()
+    );
+    console.log(`Unique users after deduplication: ${uniqueUsers.length}`);
+    
+    return { dms: allDMs, users: uniqueUsers };
   } catch (error) {
     console.error("Error in fetchAllDMs:", error);
     throw error;
