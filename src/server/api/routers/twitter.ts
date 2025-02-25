@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "../trpc";
+import https from 'https';
 
 function generateRandomState() {
   return Math.random().toString(36).substring(2, 15);
@@ -156,6 +157,18 @@ async function fetchAllDMs(token: string) {
     let paginationToken: string | undefined = undefined;
     let hasMorePages = true;
     
+    // Create fetch options with SSL verification disabled if needed
+    const fetchOptions: RequestInit = {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      // Add this to handle self-signed certificate issues on government/corporate networks
+      // @ts-ignore - The 'agent' property exists but may not be in the TypeScript types
+      agent: process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' ? 
+        new (require('https').Agent)({ rejectUnauthorized: false }) : 
+        undefined
+    };
+    
     while (hasMorePages) {
       // Build the URL with pagination token if available
       let url = 'https://api.twitter.com/2/dm_events?max_results=100';
@@ -170,11 +183,7 @@ async function fetchAllDMs(token: string) {
       
       console.log(`Fetching DMs with URL: ${url}`);
       
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await fetch(url, fetchOptions);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -227,7 +236,8 @@ async function exchangeCodeForToken(code: string, codeVerifier: string): Promise
     redirectUri: REDIRECT_URI
   });
 
-  const response = await fetch('https://api.twitter.com/2/oauth2/token', {
+  // Create fetch options with SSL verification disabled if needed
+  const fetchOptions: RequestInit = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -241,7 +251,14 @@ async function exchangeCodeForToken(code: string, codeVerifier: string): Promise
       redirect_uri: REDIRECT_URI,
       code_verifier: codeVerifier,
     }).toString(),
-  });
+    // Add this to handle self-signed certificate issues on government/corporate networks
+    // @ts-ignore - The 'agent' property exists but may not be in the TypeScript types
+    agent: process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' ? 
+      new (require('https').Agent)({ rejectUnauthorized: false }) : 
+      undefined
+  };
+
+  const response = await fetch('https://api.twitter.com/2/oauth2/token', fetchOptions);
 
   const data = await response.json();
   
